@@ -1,17 +1,16 @@
 # Advanced Meta-Prompting Chart Engine
 
-This project is a Python script that fetches data from a webpage or YouTube link, analyzes it with Gemini, and generates:
-
-- a chart image as PNG
-- an Excel workbook with a chart
+This project is a Python tool that turns a webpage or YouTube link into a polished chart and Excel workbook. It uses Gemini to analyze tabular data or text, then generates a PNG chart and an editable Excel chart.
 
 ## Features
 
 - Accepts a webpage URL or YouTube link
-- Detects tables on webpages and extracts structured data
-- Falls back to text extraction when no tables are found
-- Recommends a chart type (bar, line, or pie)
-- Saves a chart image and Excel output
+- Detects usable data tables on webpages
+- Supports popup-based input for a more interactive experience
+- Recommends a chart type such as bar, line, pie, scatter, area, or doughnut
+- Creates:
+  - a PNG chart image
+  - an Excel workbook with an embedded chart
 
 ## Requirements
 
@@ -21,22 +20,33 @@ Install the required Python packages:
 pip install requests beautifulsoup4 pandas matplotlib google-genai pydantic openpyxl yt-dlp
 ```
 
-## Usage
+## Setup
 
-Run the script:
+1. Open the project folder.
+2. Make sure your Gemini API key is set in the script before running it.
+3. Run the script:
 
 ```bash
 python main.py
 ```
 
-Then provide:
+## Usage
 
-1. a webpage or YouTube URL
-2. the view mode (Simple or Advanced)
-3. chart display choices when prompted
+When the script starts:
+
+1. Paste a webpage or YouTube URL.
+2. Choose Simple or Advanced mode.
+3. Pick a table if the page contains multiple usable tables.
+4. Choose a chart type if prompted.
+5. Choose how many items to include.
+
+The script will generate:
+
+- a chart image named `chart.png`
+- an Excel file named like `chart_YYYYMMDD_HHMMSS.xlsx`
 
 ## Notes
 
-- The script uses your Gemini API key from the code. Make sure it is valid and has access.
-- For chart popups, a GUI backend such as TkAgg or QtAgg may be required depending on your environment.
-- If YouTube support is used, `yt-dlp` must be installed.
+- The popup workflow uses tkinter, so it works best in a normal desktop Python environment.
+- If YouTube links are used, `yt-dlp` must be installed.
+- The chart appearance is designed to be clearer and more presentation-friendly for users.
