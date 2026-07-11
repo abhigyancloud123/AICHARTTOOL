@@ -1,91 +1,91 @@
 # Advanced Meta-Prompting Chart Engine
 
- 
-**License:** MIT — see [LICENSE](LICENSE)
+> BETA release. APIs and behavior may change; use for testing and development only.
 
-This project is a Python tool that turns a webpage or YouTube link into a polished chart and Excel workbook. It uses Gemini to analyze tabular data or text, then generates a PNG chart and an editable Excel chart.
+This project is a Python tool that converts a webpage or YouTube link into a polished chart and an Excel workbook. It uses Gemini to analyze table or page text and then generates a PNG chart plus an editable Excel file.
 
 ## Features
 
 - Accepts a webpage URL or YouTube link
 - Detects usable data tables on webpages
-- Supports popup-based input for a more interactive experience
-- Recommends a chart type such as bar, line, pie, scatter, area, or doughnut
-- Creates:
+- Analyzes text fallback when no table is available
+- Recommends chart types such as bar, line, or pie
+- Generates:
   - a PNG chart image
-  - an Excel workbook with an embedded chart
+  - an Excel workbook with embedded chart data
 
 ## Requirements
 
 Install the required Python packages:
 
-```bash
+```powershell
 pip install requests beautifulsoup4 pandas matplotlib google-genai pydantic openpyxl yt-dlp
 ```
 
-## Setup
+The script also uses `tkinter` for pop-up dialogs when available.
 
-1. Open the project folder.
+## Authentication
 
-2. Authentication options (pick one):
+The code reads an API key from the environment variable `GEMINI_API_KEY`.
 
-- API key (quick test):
+### Recommended: environment variable
 
-  - Edit `main.py` and set `API_KEY` to your API key, or set the environment variable for the current session:
+In PowerShell:
 
-    ```powershell
-    $env:GEMINI_API_KEY="PASTE_YOUR_API_KEY_HERE"
-    python main.py
-    ```
+```powershell
+$env:GEMINI_API_KEY="PASTE_YOUR_API_KEY_HERE"
+python main.py
+```
 
-  - To persist the env var across sessions:
+To persist the key across sessions:
 
-    ```powershell
-    setx GEMINI_API_KEY "PASTE_YOUR_API_KEY_HERE"
-    # restart terminal / VS Code
-    python main.py
-    ```
+```powershell
+setx GEMINI_API_KEY "PASTE_YOUR_API_KEY_HERE"
+# restart terminal / VS Code
+python main.py
+```
 
-- Application Default Credentials (recommended for development/production):
+### Alternative: Application Default Credentials (ADC)
 
-  - Install and configure the Google Cloud SDK, then run:
+If you prefer Google Cloud authentication:
 
-    ```powershell
-    gcloud auth application-default login
-    gcloud services enable generativelanguage.googleapis.com
-    python main.py
-    ```
+```powershell
+gcloud auth application-default login
+gcloud services enable generativelanguage.googleapis.com
+python main.py
+```
 
-- Local key file (not recommended):
+### Note: do not hardcode secrets
 
-  - You can place your key in `API KEY FOR PROJECT.txt` (the script may read this file for convenience). Remove this file after testing.
+Avoid placing API keys directly into source files. Use environment variables or secure local storage instead.
 
-3. Run the script:
+## Run
 
-```bash
+From the project folder:
+
+```powershell
+cd "C:\Users\DELL\Desktop\SPECIAL PROJECT"
 python main.py
 ```
 
 ## Usage
 
-When the script starts:
-
-1. Paste a webpage or YouTube URL.
-2. Choose Simple or Advanced mode.
-3. Pick a table if the page contains multiple usable tables.
-4. Choose a chart type if prompted.
+1. Enter a webpage or YouTube URL.
+2. Select `simple` or `advanced` mode.
+3. If multiple tables are found, choose the one you want to chart.
+4. Pick a chart type if prompted.
 5. Choose how many items to include.
 
-The script will generate:
+The script generates:
 
-- a chart image named `chart.png`
-- an Excel file named like `chart_YYYYMMDD_HHMMSS.xlsx`
+- `chart.png`
+- `chart_YYYYMMDD_HHMMSS.xlsx`
 
-## Notes
+## Troubleshooting
 
-- The popup workflow uses tkinter, so it works best in a normal desktop Python environment.
-- If YouTube links are used, `yt-dlp` must be installed.
-- The chart appearance is designed to be clearer and more presentation-friendly for users.
+- If you see a missing table or label error, try a different page or URL.
+- If `tkinter` is unavailable, the script falls back to terminal input.
+- If Git or push commands are needed, use the integrated terminal in VS Code or Git Bash.
 
 ## License
 
