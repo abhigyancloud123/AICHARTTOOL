@@ -1,6 +1,7 @@
 # Advanced Meta-Prompting Chart Engine
 
-> NOTE: This project is a BETA release. APIs and behavior may change; use for testing and development only.
+ 
+**License:** MIT — see [LICENSE](LICENSE)
 
 This project is a Python tool that turns a webpage or YouTube link into a polished chart and Excel workbook. It uses Gemini to analyze tabular data or text, then generates a PNG chart and an editable Excel chart.
 
