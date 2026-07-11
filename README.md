@@ -50,3 +50,4 @@ The script will generate:
 - The popup workflow uses tkinter, so it works best in a normal desktop Python environment.
 - If YouTube links are used, `yt-dlp` must be installed.
 - The chart appearance is designed to be clearer and more presentation-friendly for users.
+*THIS IS A BETA VERSION SO THERE WOULD BE ERRORS IN THE CODE OR THE RESPONSE GENERATED
