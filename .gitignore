@@ -61,6 +61,15 @@ venv.bak/
 *.env
 .env.*
 
+# Generated files and artifacts
+*.xlsm
+*.xlsx
+*.png
+*.log
+output.xlsx
+chart*.png
+~$*
+
 # Logs
 *.log
 
