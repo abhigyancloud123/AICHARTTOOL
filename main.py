@@ -467,24 +467,41 @@ def get_usable_tables(html: str) -> list:
     return usable
 
 
+def _normalize_text(text: str) -> str:
+    text = str(text)
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)
+    text = re.sub(r"\[.*?\]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
 def _flatten_column_name(col) -> str:
     if isinstance(col, tuple):
         parts = [str(p) for p in col if str(p) and "Unnamed" not in str(p)]
         return " ".join(parts) if parts else "Column"
-    text = str(col).strip()
-    text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"\[.*?\]", "", text)
-    return text.strip() or "Column"
+    text = _normalize_text(col)
+    return text or "Column"
 
 
 def _find_matching_column(table: pd.DataFrame, target: str):
     if target in table.columns:
         return target
 
-    normalized_target = _flatten_column_name(target).lower()
+    normalized_target = _normalize_text(target).lower()
+    if not normalized_target:
+        return None
+
+    candidates = []
     for col in table.columns:
-        if _flatten_column_name(col).lower() == normalized_target:
+        normalized_col = _normalize_text(col).lower()
+        if normalized_col == normalized_target:
             return col
+        if normalized_target in normalized_col or normalized_col in normalized_target:
+            candidates.append((len(normalized_col), col))
+
+    if candidates:
+        # Prefer the shortest matching normalized column name
+        return sorted(candidates, key=lambda item: item[0])[0][1]
 
     return None
 
