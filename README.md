@@ -1,5 +1,7 @@
 # Advanced Meta-Prompting Chart Engine
 
+> NOTE: This project is a BETA release. APIs and behavior may change; use for testing and development only.
+
 This project is a Python tool that turns a webpage or YouTube link into a polished chart and Excel workbook. It uses Gemini to analyze tabular data or text, then generates a PNG chart and an editable Excel chart.
 
 ## Features
@@ -23,7 +25,40 @@ pip install requests beautifulsoup4 pandas matplotlib google-genai pydantic open
 ## Setup
 
 1. Open the project folder.
-2. Make sure your Gemini API key is set in the script before running it.
+
+2. Authentication options (pick one):
+
+- API key (quick test):
+
+  - Edit `main.py` and set `API_KEY` to your API key, or set the environment variable for the current session:
+
+    ```powershell
+    $env:GEMINI_API_KEY="PASTE_YOUR_API_KEY_HERE"
+    python main.py
+    ```
+
+  - To persist the env var across sessions:
+
+    ```powershell
+    setx GEMINI_API_KEY "PASTE_YOUR_API_KEY_HERE"
+    # restart terminal / VS Code
+    python main.py
+    ```
+
+- Application Default Credentials (recommended for development/production):
+
+  - Install and configure the Google Cloud SDK, then run:
+
+    ```powershell
+    gcloud auth application-default login
+    gcloud services enable generativelanguage.googleapis.com
+    python main.py
+    ```
+
+- Local key file (not recommended):
+
+  - You can place your key in `API KEY FOR PROJECT.txt` (the script may read this file for convenience). Remove this file after testing.
+
 3. Run the script:
 
 ```bash
@@ -50,4 +85,7 @@ The script will generate:
 - The popup workflow uses tkinter, so it works best in a normal desktop Python environment.
 - If YouTube links are used, `yt-dlp` must be installed.
 - The chart appearance is designed to be clearer and more presentation-friendly for users.
-*THIS IS A BETA VERSION SO THERE WOULD BE ERRORS IN THE CODE OR THE RESPONSE GENERATED
+
+## License
+
+This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
