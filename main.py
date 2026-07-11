@@ -562,7 +562,13 @@ STEP 3: Labeling and Context Engineering
 def clean_table_data(table: pd.DataFrame, label_col: str, value_cols: list, title: str) -> dict:
     label_match = _find_matching_column(table, label_col)
     if label_match is None:
-        raise KeyError(f"Label column '{label_col}' was not found in the selected table.")
+        available_columns = [_flatten_column_name(c) for c in table.columns]
+        warn(
+            "Label column not found. "
+            f"Tried '{label_col}', available columns: {available_columns}. "
+            "Falling back to the first column as the label column."
+        )
+        label_match = table.columns[0]
 
     resolved_value_cols = []
     for col_name in value_cols:
