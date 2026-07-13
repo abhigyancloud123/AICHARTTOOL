@@ -6,19 +6,23 @@ import re
 import json
 import time
 import datetime
+import subprocess
+import sys
 from io import StringIO
 from typing import List, Literal, Dict
 
+import importlib
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import matplotlib
+
 try:
-    import tkinter  # noqa: F401
+    import tkinter as tk
     matplotlib.use("TkAgg", force=True)
 except Exception:
     try:
-        import PyQt5  # noqa: F401
+        importlib.import_module("PyQt5")
         matplotlib.use("QtAgg", force=True)
     except Exception:
         matplotlib.use("Agg", force=True)
@@ -39,10 +43,8 @@ except ImportError:
     YT_DLP_AVAILABLE = False
 
 try:
-    import tkinter as tk
     from tkinter import ttk, messagebox
 except Exception:
-    tk = None
     ttk = None
     messagebox = None
 
@@ -50,13 +52,31 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_dir)
 
 
+class UserBack(Exception):
+    def __init__(self, stage: str):
+        super().__init__(f"User requested back from {stage}")
+        self.stage = stage
+
+
 # ============================================
 # CONFIG & SCHEMAS
 # ============================================
-# API key can be set via environment variable GEMINI_API_KEY or via a local file.
-# For security, avoid hardcoding keys in source.
-API_KEY = os.environ.get("GEMINI_API_KEY", "")
-MODEL_NAME = "gemini-2.5-flash"
+# ---------------------------------------------------------------------------
+# Paste your Gemini API key directly between the quotes below.
+# NOTE: hardcoding a key here means anyone with access to this file/source
+# control can see it. Don't commit this file or share it publicly.
+# ---------------------------------------------------------------------------
+API_KEY = "PASTE_YOUR_GEMINI_API_KEY_HERE"
+API_KEY_SOURCE = "hardcoded"
+
+
+def build_gemini_client() -> genai.Client:
+    if not API_KEY or API_KEY == "PASTE_YOUR_GEMINI_API_KEY_HERE":
+        raise RuntimeError("No Gemini API key is configured. Edit API_KEY near the top of the script.")
+    return genai.Client(api_key=API_KEY)
+
+
+MODEL_NAME = "gemini-2.0-flash-001"
 DEFAULT_BAR_LINE_LIMIT = 10
 DEFAULT_PIE_LIMIT = 6
 
@@ -99,9 +119,25 @@ def _get_root():
     return _root
 
 
-def popup_ask_text(title: str, prompt: str, default: str = "") -> str:
+def open_file_in_default_app(path: str):
+    """Cross-platform 'open this file with whatever program handles it' (e.g. Excel)."""
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(path)  # noqa: F821 (Windows-only builtin)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", path], check=False)
+        else:
+            subprocess.run(["xdg-open", path], check=False)
+    except Exception as e:
+        popup_warn("Couldn't open file", f"Tried to open:\n{path}\n\nError: {e}")
+
+
+def popup_ask_text(title: str, prompt: str, default: str = "", allow_back: bool = False) -> str | None:
     if tk is None or ttk is None:
-        return input(prompt).strip()
+        raw = input(prompt).strip()
+        if allow_back and raw.lower() == "back":
+            return None
+        return raw
 
     root = _get_root()
     win = tk.Toplevel(root)
@@ -111,7 +147,7 @@ def popup_ask_text(title: str, prompt: str, default: str = "") -> str:
     win.resizable(False, False)
     win.update_idletasks()
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    w, h = 480, 190
+    w, h = 480, 210
     x, y = (sw - w) // 2, (sh - h) // 2
     win.geometry(f"{w}x{h}+{x}+{y}")
 
@@ -127,15 +163,27 @@ def popup_ask_text(title: str, prompt: str, default: str = "") -> str:
         result["value"] = entry_var.get().strip()
         win.destroy()
 
+    def go_back():
+        result["value"] = None
+        win.destroy()
+
     entry.bind("<Return>", submit)
-    ttk.Button(win, text="Continue", command=submit).pack(pady=12)
+    button_frame = tk.Frame(win, bg="#f4f5f7")
+    button_frame.pack(pady=12)
+    ttk.Button(button_frame, text="Continue", command=submit).pack(side="left", padx=8)
+    if allow_back:
+        ttk.Button(button_frame, text="Back", command=go_back).pack(side="left", padx=8)
+
     win.wait_window()
-    return result["value"] or ""
+    return result["value"]
 
 
-def popup_ask_choice(title: str, prompt: str, options: list) -> str:
+def popup_ask_choice(title: str, prompt: str, options: list) -> str | None:
     if tk is None or ttk is None:
-        return input(prompt).strip().lower()
+        raw = input(f"{prompt} (options: {', '.join(options)}; type BACK to go back): ").strip().lower()
+        if raw == "back":
+            return None
+        return raw
 
     root = _get_root()
     win = tk.Toplevel(root)
@@ -144,17 +192,21 @@ def popup_ask_choice(title: str, prompt: str, options: list) -> str:
     win.attributes("-topmost", True)
     win.resizable(False, False)
     win.update_idletasks()
+    w, h = 520, 220 + max(0, (len(options) - 1) // 2) * 50
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    w, h = 480, 180 + max(0, (len(options) - 1) // 2) * 50
     x, y = (sw - w) // 2, (sh - h) // 2
     win.geometry(f"{w}x{h}+{x}+{y}")
 
-    tk.Label(win, text=prompt, bg="#f4f5f7", fg="#1e1e1e", wraplength=440, justify="left", font=("Segoe UI", 11)).pack(pady=(20, 12), padx=20)
+    tk.Label(win, text=prompt, bg="#f4f5f7", fg="#1e1e1e", wraplength=500, justify="left", font=("Segoe UI", 11)).pack(pady=(20, 12), padx=20)
 
     chosen = {"value": None}
 
     def pick(opt):
         chosen["value"] = opt
+        win.destroy()
+
+    def go_back():
+        chosen["value"] = None
         win.destroy()
 
     frame = tk.Frame(win, bg="#f4f5f7")
@@ -163,13 +215,23 @@ def popup_ask_choice(title: str, prompt: str, options: list) -> str:
         row, col = divmod(i, 2)
         ttk.Button(frame, text=opt.capitalize(), width=16, command=lambda o=opt: pick(o)).grid(row=row, column=col, padx=8, pady=6)
 
+    ttk.Button(win, text="Back", command=go_back).pack(pady=(10, 12))
     win.wait_window()
-    return chosen["value"] or ""
+    return chosen["value"]
 
 
-def popup_ask_from_list(title: str, prompt: str, items: list) -> int:
+def popup_ask_from_list(title: str, prompt: str, items: list) -> int | None:
     if tk is None or ttk is None:
-        return 0
+        print(prompt)
+        for idx, item in enumerate(items, 1):
+            print(f"{idx}. {item}")
+        raw = input("Enter the number of your selection, or type BACK to go back: ").strip().lower()
+        if raw == "back":
+            return None
+        try:
+            return int(raw) - 1
+        except ValueError:
+            return 0
 
     root = _get_root()
     win = tk.Toplevel(root)
@@ -186,8 +248,15 @@ def popup_ask_from_list(title: str, prompt: str, items: list) -> int:
 
     tk.Label(win, text=prompt, bg="#f4f5f7", fg="#1e1e1e", wraplength=580, justify="left", font=("Segoe UI", 11, "bold")).pack(pady=(15, 8), padx=20)
 
-    canvas = tk.Canvas(win, bg="#f4f5f7", highlightthickness=0)
-    canvas.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+    canvas_frame = tk.Frame(win, bg="#f4f5f7")
+    canvas_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+    canvas = tk.Canvas(canvas_frame, bg="#f4f5f7", highlightthickness=0)
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+    scrollbar.pack(side="right", fill="y")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
     frame = tk.Frame(canvas, bg="#f4f5f7")
     canvas.create_window((0, 0), window=frame, anchor="nw")
 
@@ -197,16 +266,21 @@ def popup_ask_from_list(title: str, prompt: str, items: list) -> int:
         chosen["value"] = idx
         win.destroy()
 
+    def go_back():
+        chosen["value"] = None
+        win.destroy()
+
     for i, desc in enumerate(items):
         row = tk.Frame(frame, bg="white", relief="solid", borderwidth=1)
         row.pack(fill="x", padx=6, pady=4)
         tk.Label(row, text=desc, bg="white", fg="#1e1e1e", wraplength=470, justify="left", anchor="w", font=("Segoe UI", 10)).pack(side="left", padx=10, pady=8, fill="x", expand=True)
         ttk.Button(row, text="Use", command=lambda idx=i: pick(idx)).pack(side="right", padx=8, pady=6)
 
+    ttk.Button(win, text="Back", command=go_back).pack(pady=(0, 12))
     frame.update_idletasks()
     canvas.configure(scrollregion=canvas.bbox("all"))
     win.wait_window()
-    return chosen["value"] if chosen["value"] is not None else 0
+    return chosen["value"]
 
 
 def popup_info(title: str, message: str):
@@ -221,6 +295,48 @@ def popup_warn(title: str, message: str):
         messagebox.showwarning(title, message)
     else:
         print(message)
+
+
+def popup_done(png_path: str, xlsx_path: str):
+    """Completion popup with clickable buttons to open the chart image or Excel file directly."""
+    if tk is None or ttk is None:
+        print(f"Done! Chart saved: {png_path}")
+        print(f"Excel saved: {xlsx_path}")
+        return
+
+    root = _get_root()
+    win = tk.Toplevel(root)
+    win.title("Done")
+    win.configure(bg="#f4f5f7")
+    win.attributes("-topmost", True)
+    win.resizable(False, False)
+    win.update_idletasks()
+    w, h = 460, 230
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    x, y = (sw - w) // 2, (sh - h) // 2
+    win.geometry(f"{w}x{h}+{x}+{y}")
+
+    tk.Label(
+        win, text="Your chart and Excel file were created!",
+        bg="#f4f5f7", fg="#1e1e1e", font=("Segoe UI", 12, "bold"), wraplength=400
+    ).pack(pady=(24, 16), padx=20)
+
+    btn_frame = tk.Frame(win, bg="#f4f5f7")
+    btn_frame.pack(pady=6)
+
+    ttk.Button(
+        btn_frame, text="Open Excel File", width=20,
+        command=lambda: open_file_in_default_app(os.path.abspath(xlsx_path))
+    ).pack(pady=6)
+
+    ttk.Button(
+        btn_frame, text="Open Chart Image", width=20,
+        command=lambda: open_file_in_default_app(os.path.abspath(png_path))
+    ).pack(pady=6)
+
+    ttk.Button(win, text="Close", command=win.destroy).pack(pady=(14, 10))
+
+    win.wait_window()
 
 
 def step(msg: str):
@@ -248,8 +364,13 @@ def choose_item_count(data: dict, chart_type: str) -> int:
         "How many items?",
         f"{total} items were found.\nType a number, type 'all', or leave blank to use the default ({default}).",
         str(default),
-    ).strip().lower()
+        allow_back=True,
+    )
 
+    if choice is None:
+        raise UserBack("choose_item_count")
+
+    choice = choice.strip().lower()
     if choice == "":
         return default
     if choice == "all":
@@ -357,8 +478,15 @@ def save_chart_image(data: dict, analysis: ChartAnalysis, chart_type: str, filen
         ax.set_xlabel(analysis.x_axis_title, fontsize=12, labelpad=10)
         ax.set_ylabel(analysis.y_axis_title, fontsize=12, labelpad=10)
 
-    if chart_type != "pie" and (analysis.show_legend or len(series_dict) > 1):
-        legend = ax.legend(loc="upper right", frameon=True, shadow=True, facecolor="white", framealpha=0.95)
+    # ALWAYS show a legend for bar/line charts now (previously only showed
+    # conditionally, which meant single-series charts had no legend at all).
+    # For pie charts, the wedge labels + percentages already act as the legend.
+    if chart_type in ("bar", "line"):
+        series_labels = list(series_dict.keys())
+        legend = ax.legend(
+            series_labels if len(series_labels) > 1 else series_labels,
+            loc="upper right", frameon=True, shadow=True, facecolor="white", framealpha=0.95
+        )
         legend.get_frame().set_edgecolor("#d0d0d0")
 
     ax.set_axisbelow(True)
@@ -368,10 +496,7 @@ def save_chart_image(data: dict, analysis: ChartAnalysis, chart_type: str, filen
     plt.tight_layout()
     plt.savefig(filename, dpi=220, bbox_inches="tight", facecolor=fig.get_facecolor())
     info(f"Chart image saved as {filename}")
-    try:
-        plt.show(block=True)
-    except Exception:
-        plt.show()
+    plt.close(fig)
 
 
 def save_excel(data: dict, analysis: ChartAnalysis, chart_type: str) -> str:
@@ -403,12 +528,14 @@ def save_excel(data: dict, analysis: ChartAnalysis, chart_type: str) -> str:
     excel_chart.width = 22
     excel_chart.height = 14
 
+    # ALWAYS attach a legend now, regardless of series count.
+    if Legend is not None:
+        excel_chart.legend = Legend()
+        excel_chart.legend.position = "r" if chart_type != "pie" else "b"
+
     if chart_type != "pie":
         excel_chart.x_axis.title = analysis.x_axis_title
         excel_chart.y_axis.title = analysis.y_axis_title
-        if Legend is not None and (analysis.show_legend or len(series_names) > 1):
-            excel_chart.legend = Legend()
-            excel_chart.legend.position = "r"
 
     data_ref = Reference(ws, min_col=2, max_col=len(series_names) + 1, min_row=1, max_row=len(data["labels"]) + 1)
     labels_ref = Reference(ws, min_col=1, min_row=2, max_row=len(data["labels"]) + 1)
@@ -431,6 +558,8 @@ def choose_chart_type(recommended_type: str, reason: str) -> str:
         f"Recommended: {recommended_type.upper()}\nWhy: {reason}\n\nPick a chart type:",
         ["bar", "line", "pie"],
     )
+    if choice is None:
+        raise UserBack("choose_chart_type")
     return choice if choice in ("bar", "line", "pie") else recommended_type
 
 
@@ -500,7 +629,6 @@ def _find_matching_column(table: pd.DataFrame, target: str):
             candidates.append((len(normalized_col), col))
 
     if candidates:
-        # Prefer the shortest matching normalized column name
         return sorted(candidates, key=lambda item: item[0])[0][1]
 
     return None
@@ -526,6 +654,8 @@ def choose_table(tables: list, advanced: bool) -> pd.DataFrame:
         f"This page has {len(tables)} usable tables. Pick the one you want to chart:",
         descriptions,
     )
+    if idx is None:
+        raise UserBack("choose_table")
     return tables[idx]
 
 
@@ -544,19 +674,34 @@ STEP 1: Schema Assessment
 
 STEP 2: Chart Type Selection
 - Rule A (Line): If 'value_columns' contains multiple columns tracking a timeline sequence, or if the 'label_column' represents years/dates, you MUST select 'line'. Do not default to bar.
-- Rule B (Pie): If there is exactly 1 value column representing percentages/fractions of a whole and total items <= 8, select 'pie'.
-- Rule C (Bar): For discrete entity comparisons, rankings, or flat categories that do not change over a continuous timeline, select 'bar'.
+- Rule B (Pie): If there is exactly 1 value column representing percentages/fractions of a whole and total items <= 8, select 'pie'. If there are MORE than 8 rows, pie is NEVER correct - select 'bar' instead.
+- Rule C (Bar): For discrete entity comparisons, rankings, or flat categories that do not change over a continuous timeline, select 'bar'. This is the correct choice for most country/entity comparison tables with more than 8 rows.
 
 STEP 3: Labeling and Context Engineering
 - Provide clear, specific axis titles ('x_axis_title', 'y_axis_title'). Never leave them blank or generic.
 - Determine if a legend is required ('show_legend'). Multi-series data tracking multiple lines or grouped columns must always set this to True.
 """
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt,
-        config={"response_mime_type": "application/json", "response_schema": ChartAnalysis}
-    )
-    return ChartAnalysis.model_validate_json(response.text)
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config={"response_mime_type": "application/json", "response_schema": ChartAnalysis}
+        )
+        return ChartAnalysis.model_validate_json(response.text)
+    except Exception as e:
+        error_msg = str(e)
+        if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
+            raise RuntimeError("Gemini API authentication failed. Check the API_KEY value at the top of the script.")
+        if "404" in error_msg and "not available to new users" in error_msg.lower():
+            raise RuntimeError(
+                f"Model '{MODEL_NAME}' isn't available to your account yet (new-account restriction). "
+                "Try 'gemini-2.0-flash-001' instead, or verify your phone number in Google AI Studio."
+            )
+        if "404" in error_msg or "NOT_FOUND" in error_msg:
+            raise RuntimeError(f"Gemini model '{MODEL_NAME}' not found. Check MODEL_NAME is spelled correctly.")
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+            raise RuntimeError("Gemini API quota exceeded. Try again later.")
+        raise RuntimeError(f"Unexpected Gemini API error: {error_msg}")
 
 
 def clean_table_data(table: pd.DataFrame, label_col: str, value_cols: list, title: str) -> dict:
@@ -573,11 +718,15 @@ def clean_table_data(table: pd.DataFrame, label_col: str, value_cols: list, titl
     resolved_value_cols = []
     for col_name in value_cols:
         match = _find_matching_column(table, col_name)
-        if match is not None:
+        if match is not None and match != label_match:
             resolved_value_cols.append(match)
 
     if not resolved_value_cols:
-        raise KeyError(f"No numeric value columns matched the requested columns: {value_cols}")
+        resolved_value_cols = [col for col in table.columns if col != label_match]
+        warn(
+            "No requested numeric value columns matched exactly. "
+            f"Falling back to all other columns: {[_flatten_column_name(c) for c in resolved_value_cols]}"
+        )
 
     df = table[[label_match] + resolved_value_cols].copy()
     df.columns = [_flatten_column_name(c) for c in df.columns]
@@ -590,6 +739,9 @@ def clean_table_data(table: pd.DataFrame, label_col: str, value_cols: list, titl
             df[col].astype(str).str.replace(r"[^\d.\-]", "", regex=True), errors="coerce"
         )
     df = df.dropna(subset=value_column_names)
+
+    if df.empty:
+        raise RuntimeError("No numeric rows remained after cleaning the selected table columns.")
 
     return {
         "labels": df[label_column_name].astype(str).tolist(),
@@ -606,15 +758,30 @@ def extract_page_text(html: str) -> str:
 def analyze_page_text(client, page_text: str) -> FlatDataAnalysis:
     prompt = f"""
 Read this text directly and find any structured metrics or rankings to extract. Follow structural design guidelines for labels.
+Apply the same chart-type rules: pie only for <=8 items representing parts of a whole, line only for time sequences, bar otherwise.
 Webpage text:
 {page_text}
 """
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt,
-        config={"response_mime_type": "application/json", "response_schema": FlatDataAnalysis}
-    )
-    return FlatDataAnalysis.model_validate_json(response.text)
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+            config={"response_mime_type": "application/json", "response_schema": FlatDataAnalysis}
+        )
+        return FlatDataAnalysis.model_validate_json(response.text)
+    except Exception as e:
+        error_msg = str(e)
+        if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
+            raise RuntimeError("Gemini API authentication failed. Check the API_KEY value at the top of the script.")
+        if "404" in error_msg and "not available to new users" in error_msg.lower():
+            raise RuntimeError(
+                f"Model '{MODEL_NAME}' isn't available to your account yet. Try 'gemini-2.0-flash-001'."
+            )
+        if "404" in error_msg or "NOT_FOUND" in error_msg:
+            raise RuntimeError(f"Gemini model '{MODEL_NAME}' not found. Check MODEL_NAME is spelled correctly.")
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+            raise RuntimeError("Gemini API quota exceeded. Try again later.")
+        raise RuntimeError(f"Unexpected Gemini API error: {error_msg}")
 
 
 def run_webpage_flow(client, url: str, advanced: bool):
@@ -623,24 +790,34 @@ def run_webpage_flow(client, url: str, advanced: bool):
     tables = get_usable_tables(html)
 
     if tables:
-        chosen_table = choose_table(tables, advanced)
-        if advanced:
-            step("Preview of chosen table:")
-            print(chosen_table.head())
+        while True:
+            chosen_table = choose_table(tables, advanced)
+            if advanced:
+                step("Preview of chosen table:")
+                print(chosen_table.head())
 
-        step("Analyzing columns with Gemini (Meta-Prompting)...")
-        analysis = analyze_table(client, chosen_table)
-        if advanced:
-            info(f"Selected: labels = '{analysis.label_column}', values = {analysis.value_columns}")
+            step("Analyzing columns with Gemini (Meta-Prompting)...")
+            analysis = analyze_table(client, chosen_table)
+            if advanced:
+                info(f"Selected: labels = '{analysis.label_column}', values = {analysis.value_columns}")
 
-        data = clean_table_data(chosen_table, analysis.label_column, analysis.value_columns, analysis.title)
-        chart_type = choose_chart_type(analysis.recommended, analysis.reason)
+            data = clean_table_data(chosen_table, analysis.label_column, analysis.value_columns, analysis.title)
+
+            while True:
+                try:
+                    chart_type = choose_chart_type(analysis.recommended, analysis.reason)
+                    count = choose_item_count(data, chart_type)
+                    return trim_data(data, count), (analysis, chart_type)
+                except UserBack as e:
+                    if e.stage == "choose_item_count":
+                        continue
+                    if e.stage == "choose_chart_type":
+                        break
     else:
         step("No structural data tables discovered. Falling back to textual parsing extraction...")
         page_text = extract_page_text(html)
         raw_analysis = analyze_page_text(client, page_text)
 
-        # Format the flat analysis to carry structural tracking data attributes
         analysis = ChartAnalysis(
             label_column="Category",
             value_columns=["Values"],
@@ -656,13 +833,21 @@ def run_webpage_flow(client, url: str, advanced: bool):
             "series": {"Values": [float(v) for v in raw_analysis.values]},
             "title": raw_analysis.title,
         }
-        chart_type = choose_chart_type(analysis.recommended, analysis.reason)
+        while True:
+            try:
+                chart_type = choose_chart_type(analysis.recommended, analysis.reason)
+                count = choose_item_count(data, chart_type)
+                break
+            except UserBack as e:
+                if e.stage == "choose_item_count":
+                    continue
+                if e.stage == "choose_chart_type":
+                    raise
 
     if not data["labels"]:
         warn("Couldn't extract formatting structures out of this context.")
         return None, None
 
-    count = choose_item_count(data, chart_type)
     return trim_data(data, count), (analysis, chart_type)
 
 
@@ -700,20 +885,32 @@ def analyze_video(client, video_path: str) -> FlatDataAnalysis:
         raise RuntimeError("Cloud asset mapping failed compilation on service endpoint backend.")
 
     step("Executing target validation analysis processing logs...")
-    prompt = "Review visual parameters carefully. Export any clean statistical rankings data arrays found."
-
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=[video_file, prompt],
-        config={"response_mime_type": "application/json", "response_schema": FlatDataAnalysis}
+    prompt = (
+        "Review visual parameters carefully. Export any clean statistical rankings data arrays found. "
+        "Apply chart-type rules strictly: pie only for <=8 items representing parts of a whole, "
+        "line only for time sequences, bar otherwise."
     )
-    analysis = FlatDataAnalysis.model_validate_json(response.text)
 
     try:
-        client.files.delete(name=video_file.name)
-        os.remove(video_path)
-    except Exception:
-        pass
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[video_file, prompt],
+            config={"response_mime_type": "application/json", "response_schema": FlatDataAnalysis}
+        )
+        analysis = FlatDataAnalysis.model_validate_json(response.text)
+    except Exception as e:
+        error_msg = str(e)
+        if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
+            raise RuntimeError("Gemini API authentication failed. Check the API_KEY value at the top of the script.")
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+            raise RuntimeError("Gemini API quota exceeded. Try again later.")
+        raise RuntimeError(f"Unexpected Gemini API error: {error_msg}")
+    finally:
+        try:
+            client.files.delete(name=video_file.name)
+            os.remove(video_path)
+        except Exception:
+            pass
 
     return analysis
 
@@ -743,45 +940,73 @@ def run_youtube_flow(client, url: str, advanced: bool):
         warn("No clean tracking data metrics discovered inside target execution space loop context.")
         return None, None
 
-    chart_type = choose_chart_type(analysis.recommended, analysis.reason)
-    count = choose_item_count(data, chart_type)
-    return trim_data(data, count), (analysis, chart_type)
+    while True:
+        try:
+            chart_type = choose_chart_type(analysis.recommended, analysis.reason)
+            count = choose_item_count(data, chart_type)
+            return trim_data(data, count), (analysis, chart_type)
+        except UserBack as e:
+            if e.stage == "choose_item_count":
+                info("Returning to item count selection.")
+                continue
+            if e.stage == "choose_chart_type":
+                info("Back pressed: returning to mode selection.")
+                raise
 
 
 # ============================================
 # INTERFACE MAIN LOOP ENTRY POINT
 # ============================================
 def main():
-    client = genai.Client(api_key=API_KEY)
+    if not API_KEY or API_KEY == "PASTE_YOUR_GEMINI_API_KEY_HERE":
+        popup_warn("API Key missing", "Edit the API_KEY variable near the top of the script and paste your Gemini API key in.")
+        return
+
+    client = build_gemini_client()
 
     print("=" * 50)
     print("   Advanced Meta-Prompting Chart Engine Generator")
     print("=" * 50)
 
-    url = popup_ask_text("Link -> Chart Tool", "Paste a webpage or YouTube link:").strip()
-    if not url:
-        return
+    while True:
+        url = popup_ask_text("Link -> Chart Tool", "Paste a webpage or YouTube link:")
+        if url is None:
+            continue
+        url = url.strip()
+        if not url:
+            return
 
-    mode = popup_ask_choice("View mode", "Choose a view mode:", ["simple", "advanced"])
-    advanced = mode == "advanced"
+        while True:
+            mode = popup_ask_choice("View mode", "Choose a view mode:", ["simple", "advanced"])
+            if mode is None:
+                break
+            advanced = mode == "advanced"
 
-    try:
-        if is_youtube_url(url):
-            result, meta = run_youtube_flow(client, url, advanced)
-        else:
-            result, meta = run_webpage_flow(client, url, advanced)
-    except RuntimeError as e:
-        popup_warn("Error", str(e))
-        return
+            try:
+                if is_youtube_url(url):
+                    result, meta = run_youtube_flow(client, url, advanced)
+                else:
+                    result, meta = run_webpage_flow(client, url, advanced)
+            except UserBack:
+                info("Going back to the previous selection.")
+                continue
+            except RuntimeError as e:
+                popup_warn("Error", str(e))
+                break
+            except Exception as e:
+                popup_warn("Unexpected error", str(e))
+                break
 
-    if result is None:
-        return
+            if result is None:
+                continue
 
-    analysis, chart_type = meta
-    step("Generating visualization output components...")
-    save_chart_image(result, analysis, chart_type)
-    save_excel(result, analysis, chart_type)
-    popup_info("Done", "Your chart image and Excel file were created in the project folder.")
+            analysis, chart_type = meta
+            step("Generating visualization output components...")
+            save_chart_image(result, analysis, chart_type, filename="chart.png")
+            xlsx_filename = save_excel(result, analysis, chart_type)
+            popup_done("chart.png", xlsx_filename)
+            return
+        # User pressed back from view mode; return to top-level URL prompt.
 
 
 if __name__ == "__main__":
